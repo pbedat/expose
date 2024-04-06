@@ -1,0 +1,66 @@
+{
+  "components": {
+    "schemas": {
+      "github.com.pbedat.expose.req": {
+        "properties": {
+          "Foo": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "Foo"
+        ],
+        "type": "object"
+      },
+      "github.com.pbedat.expose.res": {
+        "properties": {
+          "Bar": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "Bar"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "test",
+    "version": ""
+  },
+  "openapi": "3.0.2",
+  "paths": {
+    "/foo/bar/baz": {
+      "post": {
+        "operationId": "foo.bar#baz",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/github.com.pbedat.expose.req"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/github.com.pbedat.expose.res"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "foo.bar"
+        ]
+      }
+    }
+  }
+}
