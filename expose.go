@@ -3,13 +3,17 @@ package expose
 import (
 	"context"
 	"strings"
+
+	"github.com/getkin/kin-openapi/openapi3"
 )
 
 // Func creates an [Function] that can be registered with the [Handler]. The provided `fn`
 // is then callable at the provided path.
 // If you want to expose a function without an input or output parameter, you can parametrize with [Void], use
 // [FuncVoid] or [FuncNullary] instead.
-func Func[TReq any, TRes any](mountpoint string, fn func(ctx context.Context, req TReq) (TRes, error)) Function {
+func Func[TReq any, TRes any](
+	mountpoint string,
+	fn func(ctx context.Context, req TReq) (TRes, error), opts ...FuncOpt) Function {
 	n := mountpoint[strings.LastIndex(mountpoint, "/")+1:]
 
 	return &functionDefinition[TReq, TRes]{
@@ -18,7 +22,17 @@ func Func[TReq any, TRes any](mountpoint string, fn func(ctx context.Context, re
 		fn: func(ctx context.Context, req any) (any, error) {
 			return fn(ctx, req.(TReq))
 		},
+		settings: newSettings(opts...),
 	}
+}
+
+func newSettings(opts ...FuncOpt) functionSettings {
+	s := &functionSettings{}
+	for _, opt := range opts {
+		opt(s)
+	}
+
+	return *s
 }
 
 // Void is a placeholder for input or output parameters. When an input parameter is [Void].
@@ -30,7 +44,7 @@ func (v *Void) UnmarshalJSON(b []byte) error {
 }
 
 // FuncVoid creates an [Function] for functions that do not return values. Shortcut for using [Func] with [Void] as request argument.
-func FuncVoid[TReq any](mountpoint string, fn func(ctx context.Context, req TReq) error) Function {
+func FuncVoid[TReq any](mountpoint string, fn func(ctx context.Context, req TReq) error, opts ...FuncOpt) Function {
 	n := mountpoint[strings.LastIndex(mountpoint, "/")+1:]
 
 	return &functionDefinition[TReq, Void]{
@@ -40,11 +54,12 @@ func FuncVoid[TReq any](mountpoint string, fn func(ctx context.Context, req TReq
 			err := fn(ctx, req.(TReq))
 			return Void{}, err
 		},
+		settings: newSettings(opts...),
 	}
 }
 
 // FuncNullary creates an [Function] for functions without a request argument. See [Func].
-func FuncNullary[TRes any](mountpoint string, fn func(ctx context.Context) (TRes, error)) Function {
+func FuncNullary[TRes any](mountpoint string, fn func(ctx context.Context) (TRes, error), opts ...FuncOpt) Function {
 	n := mountpoint[strings.LastIndex(mountpoint, "/")+1:]
 
 	return &functionDefinition[Void, TRes]{
@@ -54,11 +69,12 @@ func FuncNullary[TRes any](mountpoint string, fn func(ctx context.Context) (TRes
 			res, err := fn(ctx)
 			return res, err
 		},
+		settings: newSettings(opts...),
 	}
 }
 
 // FuncNullaryVoid creates an [Function] for functions without a request argument and return no result. See [Func]
-func FuncNullaryVoid(mountpoint string, fn func(ctx context.Context) error) Function {
+func FuncNullaryVoid(mountpoint string, fn func(ctx context.Context) error, opts ...FuncOpt) Function {
 	n := mountpoint[strings.LastIndex(mountpoint, "/")+1:]
 
 	return &functionDefinition[Void, Void]{
@@ -68,6 +84,7 @@ func FuncNullaryVoid(mountpoint string, fn func(ctx context.Context) error) Func
 			err := fn(ctx)
 			return Void{}, err
 		},
+		settings: newSettings(opts...),
 	}
 }
 
@@ -89,14 +106,28 @@ type Function interface {
 	// Used for schema reflection.
 	Res() any
 	// Apply calls the actual function by decoding the http request and passing it to the function
-	Apply(ctx context.Context, dec Decoder) (any, error)
+	Apply(ctx context.Context, dec Decoder, spec openapi3.T) (any, error)
 }
+
+type functionSettings struct {
+	validate bool
+}
+
+// Validate enables the json schema validation for requests
+func Validate(validate bool) FuncOpt {
+	return func(s *functionSettings) {
+		s.validate = validate
+	}
+}
+
+type FuncOpt func(s *functionSettings)
 
 // functionDefinition is an instance of [Function]
 type functionDefinition[TReq any, TRes any] struct {
-	name string
-	path string
-	fn   func(ctx context.Context, req any) (any, error)
+	name     string
+	path     string
+	fn       func(ctx context.Context, req any) (any, error)
+	settings functionSettings
 }
 
 func (def *functionDefinition[TReq, TRes]) Name() string {
@@ -112,7 +143,7 @@ func (def *functionDefinition[TReq, TRes]) Path() string {
 	return def.path
 }
 
-func (def *functionDefinition[TReq, TRes]) Apply(ctx context.Context, dec Decoder) (any, error) {
+func (def *functionDefinition[TReq, TRes]) Apply(ctx context.Context, dec Decoder, spec openapi3.T) (any, error) {
 	var req TReq
 	var res TRes
 
@@ -122,6 +153,15 @@ func (def *functionDefinition[TReq, TRes]) Apply(ctx context.Context, dec Decode
 	if err := dec.Decode(&req); err != nil {
 		return res, err
 	}
+
+	if def.settings.validate {
+		ref := spec.Paths.Find(def.Path()).Post.RequestBody.Value.Content.Get("application/json").Schema.Ref
+		ref = strings.TrimPrefix(ref, "#/components/schemas/")
+		if err := spec.Components.Schemas[ref].Value.VisitJSON(req, openapi3.EnableFormatValidation()); err != nil {
+			return res, err
+		}
+	}
+
 	return def.fn(ctx, req)
 }
 

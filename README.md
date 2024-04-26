@@ -136,3 +136,5 @@ curl localhost:8000/rpc/swagger.json
   ]
 }
 ```
+
+More examples: https://github.com/pbedat/expose/tree/main/examples

@@ -64,6 +64,11 @@ func NewHandler(fns []Function, options ...HandlerOption) (*Handler, error) {
 		applyOption(settings)
 	}
 
+	validationSpec, err := ReflectSpec(settings.defaultSpec, fns, withSettings(*settings.reflectSettings), SkipExtractSubSchemas())
+	if err != nil {
+		return nil, err
+	}
+
 	r := http.NewServeMux()
 
 	for _, _fn := range fns {
@@ -88,7 +93,9 @@ func NewHandler(fns []Function, options ...HandlerOption) (*Handler, error) {
 				return
 			}
 
-			res, err := fn.Apply(r.Context(), reqEncoding.GetDecoder(r.Body))
+			dec := reqEncoding.GetDecoder(r.Body)
+
+			res, err := fn.Apply(r.Context(), dec, validationSpec)
 
 			accept := r.Header.Get("accept")
 			if accept == "" {

@@ -10,8 +10,9 @@ import (
 )
 
 type reflectSettings struct {
-	mapper    SchemaMapper
-	typeNamer SchemaIdentifier
+	mapper                SchemaMapper
+	typeNamer             SchemaIdentifier
+	skipExtractSubSchemas bool
 }
 
 type reflectSpecOpt func(s *reflectSettings)
@@ -144,7 +145,7 @@ func reflectSchema(val any, schemas openapi3.Schemas, settings reflectSettings) 
 	}
 	schemas[id] = ref
 
-	if ref.Value != nil {
+	if !settings.skipExtractSubSchemas && ref.Value != nil {
 		if err := walkSchema(ref, extractSubSchemas(schemas)); err != nil {
 			return fail(err)
 		}
@@ -351,5 +352,16 @@ func newCustomizerFlow(pipes ...customizerPipe) openapi3gen.SchemaCustomizerFn {
 		}
 
 		return nil
+	}
+}
+
+// SkipExtractSubSchemas prevents the extraction sub schemas into compeonents/schemas while reflecting a spec
+func SkipExtractSubSchemas(skip ...bool) reflectSpecOpt {
+	return func(s *reflectSettings) {
+		if len(skip) > 0 {
+			s.skipExtractSubSchemas = skip[0]
+			return
+		}
+		s.skipExtractSubSchemas = true
 	}
 }
