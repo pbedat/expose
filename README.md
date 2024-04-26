@@ -1,3 +1,5 @@
+Godoc: https://pkg.go.dev/github.com/pbedat/expose
+
 # exposeRPC
 
 exposeRPC allows you to create RPC interfaces, without the usual boilerplate.
