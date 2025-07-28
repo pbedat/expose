@@ -153,3 +153,61 @@ func TestStructMultipleMethods(t *testing.T) {
 		t.Fatalf("expected body '1', got '%s'", rec.Body.String())
 	}
 }
+
+type interfaceapp struct {
+	Foo FooInterfaceHandler
+}
+
+type FooInterfaceHandler interface {
+	Handle(ctx context.Context) error
+}
+
+type FooHandler struct {
+	called bool
+}
+
+func (h *FooHandler) Handle(ctx context.Context) error {
+	h.called = true
+	return nil
+}
+
+func TestStructWithInterfaces(t *testing.T) {
+
+	app := &interfaceapp{
+		Foo: &FooHandler{},
+	}
+
+	h, err := expose.NewHandler(
+		expose.Struct("/app", app),
+		expose.WithPathPrefix("/rpc"),
+		expose.WithDefaultSpec(&openapi3.T{
+			Info: &openapi3.Info{
+				Title: "Starter Example",
+			},
+			Servers: openapi3.Servers{
+				&openapi3.Server{
+					URL: "http://localhost:8000/rpc",
+				},
+			},
+		}),
+		expose.WithSwaggerUI("/swagger-ui"),
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	fooReq := httptest.NewRequest("POST", "/rpc/app/foo", strings.NewReader(`{}`))
+	fooReq.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, fooReq)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rec.Code)
+	}
+
+	fooHandler, _ := app.Foo.(*FooHandler)
+
+	if !fooHandler.called {
+		t.Fatalf("expected FooHandler to be called, but it was not")
+	}
+}

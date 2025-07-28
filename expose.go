@@ -195,6 +195,17 @@ func traverseStruct(path string, v reflect.Value, functions *[]Function, opts []
 		v = v.Elem()
 	}
 
+	// Handle interface types by checking their underlying value
+	if v.Kind() == reflect.Interface {
+		if v.IsNil() {
+			return
+		}
+		v = v.Elem()
+		// Recursively call traverseStruct with the concrete value
+		traverseStruct(path, v, functions, opts)
+		return
+	}
+
 	// Only process structs
 	if v.Kind() != reflect.Struct {
 		return
