@@ -396,7 +396,8 @@ type structFunctionDefinition struct {
 }
 
 func (def *structFunctionDefinition) Name() string {
-	return def.name
+	n := def.path[strings.LastIndex(def.path, "/")+1:]
+	return n
 }
 
 func (def *structFunctionDefinition) Module() string {
