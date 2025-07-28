@@ -5,6 +5,7 @@ go 1.22.0
 require (
 	github.com/flowchartsman/swaggerui v0.0.0-20221017034628-909ed4f3701b
 	github.com/getkin/kin-openapi v0.124.0
+	github.com/iancoleman/strcase v0.3.0
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/samber/lo v1.38.1
 	github.com/ysmood/got v0.39.4
