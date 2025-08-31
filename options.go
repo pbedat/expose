@@ -80,5 +80,12 @@ func WithSchemaIdentifier(namer SchemaIdentifier) reflectSpecOpt {
 	}
 }
 
+// WithMiddleware adds middleware to the handler chain
+func WithMiddleware(middlewares ...Middleware) HandlerOption {
+	return func(settings *handlerSettings) {
+		settings.middlewares = append(settings.middlewares, middlewares...)
+	}
+}
+
 // TypeNamers are used to generate a schema identifier for a go type
 type SchemaIdentifier func(t reflect.Type) string
