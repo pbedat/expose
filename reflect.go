@@ -13,6 +13,7 @@ type reflectSettings struct {
 	mapper                SchemaMapper
 	typeNamer             SchemaIdentifier
 	skipExtractSubSchemas bool
+	customizers           []SchemaCustomizer
 }
 
 type reflectSpecOpt func(s *reflectSettings)
@@ -20,6 +21,15 @@ type reflectSpecOpt func(s *reflectSettings)
 func WithSchemaMapper(mapper SchemaMapper) reflectSpecOpt {
 	return func(s *reflectSettings) {
 		s.mapper = mapper
+	}
+}
+
+// WithSchemaCustomizers appends custom schema customizers to the reflection pipeline.
+// Customizers run after setID but before the built-in mapper, custom type, and required-properties pipes.
+// Multiple calls to WithSchemaCustomizers are cumulative.
+func WithSchemaCustomizers(customizers ...SchemaCustomizer) reflectSpecOpt {
+	return func(s *reflectSettings) {
+		s.customizers = append(s.customizers, customizers...)
 	}
 }
 
@@ -130,15 +140,20 @@ func reflectSchema(val any, schemas openapi3.Schemas, settings reflectSettings) 
 
 	var gen openapi3gen.Generator
 
+	pipes := []SchemaCustomizer{
+		setID(t, settings.typeNamer),
+	}
+	pipes = append(pipes, settings.customizers...)
+	pipes = append(pipes,
+		tryMap(settings.mapper),
+		useCutomType(&gen, schemas),
+		markPropertiesRequired(),
+	)
+
 	gen = *openapi3gen.NewGenerator(
 		openapi3gen.UseAllExportedFields(),
 		openapi3gen.SchemaCustomizer(
-			newCustomizerFlow(
-				setID(t, settings.typeNamer),
-				tryMap(settings.mapper),
-				useCutomType(&gen, schemas),
-				markPropertiesRequired(),
-			)))
+			newCustomizerFlow(pipes...)))
 	ref, err := gen.NewSchemaRefForValue(val, schemas)
 	if err != nil {
 		return fail(err)
@@ -276,7 +291,7 @@ type SchemaProvider interface {
 }
 
 // setID sets the $id of the schema. See [idSlug].
-func setID(mainType reflect.Type, namer SchemaIdentifier) customizerPipe {
+func setID(mainType reflect.Type, namer SchemaIdentifier) SchemaCustomizer {
 	mainStructType := mainType
 	if mainStructType.Kind() == reflect.Pointer {
 		mainStructType = mainStructType.Elem()
@@ -296,7 +311,7 @@ func setID(mainType reflect.Type, namer SchemaIdentifier) customizerPipe {
 }
 
 // tryMap uses the user defined mappings to acquire the schema of a type. When a schema is found, no further customizations will be applied.
-func tryMap(mapper SchemaMapper) customizerPipe {
+func tryMap(mapper SchemaMapper) SchemaCustomizer {
 	return func(name string, t reflect.Type, tag reflect.StructTag, schema *openapi3.Schema) (stop bool, err error) {
 		if mapper == nil {
 			return false, nil
@@ -312,7 +327,7 @@ func tryMap(mapper SchemaMapper) customizerPipe {
 
 // useCustomType checks the provided type whether it implements [SchemaProvider].
 // When it does, the provided schema will be used an no further customizations will be applied.
-func useCutomType(gen *openapi3gen.Generator, schemas openapi3.Schemas) customizerPipe {
+func useCutomType(gen *openapi3gen.Generator, schemas openapi3.Schemas) SchemaCustomizer {
 	return func(name string, t reflect.Type, tag reflect.StructTag, schema *openapi3.Schema) (stop bool, err error) {
 		if t.Implements(reflect.TypeOf((*SchemaProvider)(nil)).Elem()) {
 			p := reflect.New(t).Interface().(SchemaProvider)
@@ -328,18 +343,21 @@ func useCutomType(gen *openapi3gen.Generator, schemas openapi3.Schemas) customiz
 }
 
 // markPropertiesRequired flags a schema property as required unless the json struct tag defines `omitempty`
-func markPropertiesRequired() customizerPipe {
+func markPropertiesRequired() SchemaCustomizer {
 	return func(name string, t reflect.Type, tag reflect.StructTag, schema *openapi3.Schema) (stop bool, err error) {
 		schema.Required = append(schema.Required, getRequiredProps(t)...)
 		return
 	}
 }
 
-type customizerPipe func(name string, t reflect.Type, tag reflect.StructTag, schema *openapi3.Schema) (stop bool, err error)
+// SchemaCustomizer is a function that customizes an OpenAPI schema during reflection.
+// It receives the field name, the Go reflect.Type, the struct tag, and the schema being built.
+// Returning stop=true halts the customizer pipeline for this schema; no further customizers will run.
+type SchemaCustomizer func(name string, t reflect.Type, tag reflect.StructTag, schema *openapi3.Schema) (stop bool, err error)
 
 // newCustomizerFlow create an [openapi3gen.SchemaCustomizerFn], that iterates over all provided pipes
 // until an error is returned, a pipe returns with `stop = true` or all pipes have run.
-func newCustomizerFlow(pipes ...customizerPipe) openapi3gen.SchemaCustomizerFn {
+func newCustomizerFlow(pipes ...SchemaCustomizer) openapi3gen.SchemaCustomizerFn {
 	return func(name string, t reflect.Type, tag reflect.StructTag, schema *openapi3.Schema) error {
 		for _, p := range pipes {
 			stop, err := p(name, t, tag, schema)

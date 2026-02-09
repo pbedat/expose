@@ -118,6 +118,57 @@ type dedup2 struct {
 	Dup2 dup
 }
 
+func TestWithSchemaCustomizers(t *testing.T) {
+	g := got.T(t)
+
+	t.Run("customizer modifies schema", func(t *testing.T) {
+		type req struct{ Foo string }
+		type res struct{ Bar int }
+
+		addDescription := func(name string, t reflect.Type, tag reflect.StructTag, schema *openapi3.Schema) (bool, error) {
+			if schema.Description == "" {
+				schema.Description = "customized"
+			}
+			return false, nil
+		}
+
+		spec, err := ReflectSpec(openapi3.T{}, []Function{
+			Func("/test/fn", func(ctx context.Context, r req) (res, error) {
+				return res{}, nil
+			}),
+		}, WithSchemaCustomizers(addDescription))
+
+		g.Must().Nil(err)
+
+		for _, schemaRef := range spec.Components.Schemas {
+			g.Eq(schemaRef.Value.Description, "customized")
+		}
+	})
+
+	t.Run("stop prevents subsequent customizers", func(t *testing.T) {
+		type req struct{ Foo string }
+		type res struct{ Bar int }
+
+		called := false
+		first := SchemaCustomizer(func(name string, t reflect.Type, tag reflect.StructTag, schema *openapi3.Schema) (bool, error) {
+			return true, nil
+		})
+		second := SchemaCustomizer(func(name string, t reflect.Type, tag reflect.StructTag, schema *openapi3.Schema) (bool, error) {
+			called = true
+			return false, nil
+		})
+
+		_, err := ReflectSpec(openapi3.T{}, []Function{
+			Func("/test/fn", func(ctx context.Context, r req) (res, error) {
+				return res{}, nil
+			}),
+		}, WithSchemaCustomizers(first, second))
+
+		g.Must().Nil(err)
+		g.False(called)
+	})
+}
+
 func TestRequired(t *testing.T) {
 
 	t.Run("with tags", func(t *testing.T) {
